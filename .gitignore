@@ -6,3 +6,4 @@ dist/
 .impeccable/
 *.log
 .DS_Store
+design/
