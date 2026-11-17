@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.1.0] - 2026-11-18
+
+### Fixed
+
+- Conversation list: the Malay title and English subtitle no longer run together on one line — the subtitle now sits below the title in muted, smaller text.
+
+### Changed
+
+- Flashcards: the topic chip wall is replaced by a single "Topics" button that opens a panel (bottom sheet on phones, centered dialog on desktop) grouping the set's topics into 8 parent categories, each toggleable as a whole group or expanded to individual subtopics, with All/None and a "Show N cards" action.
+- Quiz setup: the flat per-topic button list is now grouped by the same 8 parent categories, with each group startable as a whole-group quiz (distractors drawn from the group first) or expandable to start a single-subtopic quiz as before.
+- First visit now defaults to "All weeks" in Flashcards mode instead of Week 1; the last chosen set and mode continue to be remembered after that.
+- Flashcards: Malay and English sides now get distinct calm paper tints (sage green for Malay, warm sand for English) with a small "MELAYU"/"ENGLISH" label, so the active language is identifiable regardless of flip direction. The same colour coding is applied, more subtly, to example sentences, conversation lines, and the glossary table.
+- Flashcards: the card flip is now a real animated 3D rotation (no DOM re-render on flip), and next/previous moves use a direction-aware slide-and-fade transition; both respect `prefers-reduced-motion` by falling back to a quick opacity crossfade.
+
 ## [1.0.0] - 2026-11-18
 
 ### Added

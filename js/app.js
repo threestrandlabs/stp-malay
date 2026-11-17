@@ -11,12 +11,13 @@
   var modeButtons = Array.prototype.slice.call(document.querySelectorAll(".mode-btn"));
 
   var allSets = [];
+  var topicGroups = [];
   var state = {
     setId: null,
     mode: null,
     activeQuiz: null,
-    flash: { topics: new Set(), deck: [], pos: 0, flipped: false, direction: "ms-en" },
-    quizSetup: { screen: "setup" },
+    flash: { topics: new Set(), deck: [], pos: 0, flipped: false, direction: "ms-en", panelOpen: false, expanded: new Set() },
+    quizSetup: { screen: "setup", expanded: new Set() },
     conv: { screen: "list", selection: null, showEnglish: true },
     table: { query: "" }
   };
@@ -70,12 +71,27 @@
     });
   }
 
+  function getPresentGroups(set) {
+    var allTopics = getTopics(set);
+    var mapped = [];
+    var present = topicGroups.map(function (g) {
+      var topics = g.topics.filter(function (t) { return allTopics.indexOf(t) !== -1; });
+      mapped = mapped.concat(topics);
+      return { id: g.id, label: g.label, topics: topics };
+    }).filter(function (g) { return g.topics.length; });
+    var leftover = allTopics.filter(function (t) { return mapped.indexOf(t) === -1; });
+    if (leftover.length) present = present.concat([{ id: "other", label: "Other", topics: leftover }]);
+    return present;
+  }
+
   // ---------- Flashcards ----------
 
   function resetFlashState() {
     var set = currentSet();
     state.flash.topics = new Set(getTopics(set));
     state.flash.direction = "ms-en";
+    state.flash.panelOpen = false;
+    state.flash.expanded = new Set();
     recomputeFlashDeck();
   }
 
@@ -87,16 +103,80 @@
     state.flash.flipped = false;
   }
 
-  function toggleFlashTopic(topic) {
-    var topics = state.flash.topics;
-    var allTopics = getTopics(currentSet());
-    if (topics.size === allTopics.length) {
-      state.flash.topics = new Set([topic]);
-    } else if (topics.has(topic)) {
-      if (topics.size > 1) topics.delete(topic);
-    } else {
-      topics.add(topic);
-    }
+  function openTopicsPanel() {
+    state.flash.panelOpen = true;
+    render();
+    var panel = document.getElementById("topics-panel");
+    if (panel) panel.focus();
+  }
+
+  function closeTopicsPanel() {
+    state.flash.panelOpen = false;
+    render();
+    var trigger = document.querySelector(".topics-trigger");
+    if (trigger) trigger.focus();
+  }
+
+  function flashTopicsSummaryLabel(set) {
+    var allTopics = getTopics(set);
+    var selected = state.flash.topics;
+    if (selected.size === allTopics.length) return "Topics: All";
+    if (selected.size === 0) return "Topics: None";
+    var groups = getPresentGroups(set);
+    var fullGroups = groups.filter(function (g) { return g.topics.every(function (t) { return selected.has(t); }); });
+    var anyPartial = groups.some(function (g) {
+      var n = g.topics.filter(function (t) { return selected.has(t); }).length;
+      return n > 0 && n < g.topics.length;
+    });
+    if (!anyPartial && fullGroups.length) return "Topics: " + fullGroups.length + " of " + groups.length + " groups";
+    return "Topics: " + selected.size + " subtopics";
+  }
+
+  function renderTopicsPanel(set) {
+    var groups = getPresentGroups(set);
+    var selected = state.flash.topics;
+    var expanded = state.flash.expanded;
+
+    var rows = groups.map(function (g) {
+      var selectedCount = g.topics.filter(function (t) { return selected.has(t); }).length;
+      var checked = selectedCount === 0 ? "false" : selectedCount === g.topics.length ? "true" : "mixed";
+      var count = set.cards.filter(function (c) { return g.topics.indexOf(c.topic) !== -1; }).length;
+      var isExpanded = expanded.has(g.id);
+      var subRows = !isExpanded ? "" : '<div class="topic-subtopic-list">' + g.topics.map(function (t) {
+        var n = set.cards.filter(function (c) { return c.topic === t; }).length;
+        return '<button type="button" class="topic-row-sub" role="checkbox" aria-checked="' + selected.has(t) + '" data-action="flash-subtopic-toggle" data-topic="' + esc(t) + '">' +
+          '<span class="topic-check" aria-hidden="true"></span>' +
+          '<span class="topic-row-label">' + esc(t) + "</span>" +
+          '<span class="topic-row-count">' + n + "</span>" +
+          "</button>";
+      }).join("") + "</div>";
+
+      return '<div class="topic-group">' +
+        '<div class="topic-row-group">' +
+        '<button type="button" class="topic-row-main" role="checkbox" aria-checked="' + checked + '" data-action="flash-group-toggle" data-group="' + esc(g.id) + '">' +
+        '<span class="topic-check" aria-hidden="true"></span>' +
+        '<span class="topic-row-label">' + esc(g.label) + "</span>" +
+        '<span class="topic-row-count">' + count + "</span>" +
+        "</button>" +
+        '<button type="button" class="topic-expand-btn" data-action="flash-group-expand" data-group="' + esc(g.id) + '" aria-expanded="' + isExpanded + '" aria-label="' + (isExpanded ? "Collapse " : "Expand ") + esc(g.label) + ' topics">' + ICONS.chevronRight + "</button>" +
+        "</div>" +
+        subRows +
+        "</div>";
+    }).join("");
+
+    var doneLabel = state.flash.deck.length ? "Show " + state.flash.deck.length + " cards" : "Done";
+
+    return '<div class="topics-overlay" data-action="flash-topics-backdrop"></div>' +
+      '<div class="topics-panel" id="topics-panel" role="dialog" aria-modal="true" aria-labelledby="topics-panel-title" tabindex="-1">' +
+      '<div class="topics-panel-header"><h2 class="topics-panel-title" id="topics-panel-title">Topics</h2>' +
+      '<button type="button" class="icon-btn btn-ghost" data-action="flash-topics-close" aria-label="Close">' + ICONS.x + "</button></div>" +
+      '<div class="topics-panel-quick">' +
+      '<button type="button" class="btn btn-ghost" data-action="flash-topics-all">All</button>' +
+      '<button type="button" class="btn btn-ghost" data-action="flash-topics-none">None</button>' +
+      "</div>" +
+      '<div class="topics-panel-list">' + rows + "</div>" +
+      '<div class="topics-panel-footer"><button type="button" class="btn btn-primary" data-action="flash-topics-done">' + doneLabel + "</button></div>" +
+      "</div>";
   }
 
   function flashMove(delta) {
@@ -107,45 +187,91 @@
     render();
   }
 
+  var flashAnimating = false;
+
+  function reducedMotion() {
+    return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  function flashVisibleSide() {
+    var msFirst = state.flash.direction === "ms-en";
+    var frontSide = msFirst ? "ms" : "en";
+    var backSide = msFirst ? "en" : "ms";
+    return state.flash.flipped ? backSide : frontSide;
+  }
+
+  function toggleFlashFlip() {
+    var cardEl = viewEl.querySelector(".flashcard");
+    state.flash.flipped = !state.flash.flipped;
+    if (!cardEl) { render(); return; }
+    cardEl.classList.toggle("is-flipped", state.flash.flipped);
+    cardEl.setAttribute("aria-pressed", String(state.flash.flipped));
+    cardEl.setAttribute("data-side", flashVisibleSide());
+  }
+
+  function animateFlashMove(delta) {
+    var deck = state.flash.deck;
+    if (!deck.length || flashAnimating) return;
+    var cardEl = viewEl.querySelector(".flashcard");
+    if (!cardEl) { flashMove(delta); return; }
+    flashAnimating = true;
+    var dir = delta > 0 ? "next" : "prev";
+    var outDuration = reducedMotion() ? 120 : 220;
+    cardEl.setAttribute("data-anim", "out-" + dir);
+    cardEl.classList.add("anim-out-" + dir);
+    setTimeout(function () {
+      flashMove(delta);
+      var newCardEl = viewEl.querySelector(".flashcard");
+      if (newCardEl) {
+        newCardEl.setAttribute("data-anim", "in-" + dir);
+        newCardEl.classList.add("anim-in-" + dir);
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            newCardEl.classList.remove("anim-in-" + dir);
+            newCardEl.removeAttribute("data-anim");
+          });
+        });
+      }
+      flashAnimating = false;
+    }, outDuration);
+  }
+
   function renderFlashcards() {
     var set = currentSet();
     var topics = getTopics(set);
-    var selected = state.flash.topics;
-
-    var chipRow = '<div class="chip-row" role="group" aria-label="Filter topics">' +
-      '<button type="button" class="chip chip-action" data-action="flash-topics-all">All</button>' +
-      '<button type="button" class="chip chip-action" data-action="flash-topics-none">None</button>' +
-      topics.map(function (t) {
-        return '<button type="button" class="chip" data-action="flash-topic" data-topic="' + esc(t) + '" aria-pressed="' + selected.has(t) + '">' + esc(t) + "</button>";
-      }).join("") +
-      "</div>";
+    var panelHtml = state.flash.panelOpen ? renderTopicsPanel(set) : "";
+    var topicsButton = '<button type="button" class="btn topics-trigger" data-action="flash-topics-open" aria-haspopup="dialog">' + esc(flashTopicsSummaryLabel(set)) + "</button>";
 
     if (!topics.length) {
-      return chipRow + '<p class="empty-state">No topics in this set.</p>';
+      return topicsButton + '<p class="empty-state">No topics in this set.</p>' + panelHtml;
     }
 
     var deck = state.flash.deck;
     if (!deck.length) {
-      return chipRow + '<p class="empty-state">No topics selected. Choose a topic to study.</p>';
+      return '<div class="flash-toolbar">' + topicsButton + "</div>" +
+        '<p class="empty-state">No topics selected. Choose a topic to study.</p>' + panelHtml;
     }
 
     var card = deck[state.flash.pos];
     var msFirst = state.flash.direction === "ms-en";
+    var frontLangCode = msFirst ? "ms" : "en";
+    var backLangCode = msFirst ? "en" : "ms";
     var frontText = msFirst ? card.ms : card.en;
     var frontLang = msFirst ? ' lang="ms"' : "";
     var backText = msFirst ? card.en : card.ms;
     var backLang = msFirst ? "" : ' lang="ms"';
+    var visibleSide = state.flash.flipped ? backLangCode : frontLangCode;
 
     var examplesHtml = "";
     if (card.examples && card.examples.length) {
       examplesHtml = '<div class="card-examples"><p class="card-examples-title">Examples</p>' +
         card.examples.map(function (ex) {
-          return '<div class="example-row"><span class="example-ms" lang="ms">' + esc(ex.ms) + '</span> — <span class="example-en">' + esc(ex.en) + "</span></div>";
+          return '<div class="example-row"><span class="example-ms lang-ms" lang="ms">' + esc(ex.ms) + '</span> — <span class="example-en lang-en">' + esc(ex.en) + "</span></div>";
         }).join("") + "</div>";
     }
 
-    return chipRow +
-      '<div class="flash-toolbar">' +
+    return '<div class="flash-toolbar">' +
+      topicsButton +
       '<div class="direction-toggle" role="group" aria-label="Direction">' +
       '<button type="button" data-action="flash-direction" data-direction="ms-en" aria-pressed="' + msFirst + '">BM &rarr; EN</button>' +
       '<button type="button" data-action="flash-direction" data-direction="en-ms" aria-pressed="' + !msFirst + '">EN &rarr; BM</button>' +
@@ -153,14 +279,16 @@
       '<span class="flash-counter">' + (state.flash.pos + 1) + " / " + deck.length + "</span>" +
       "</div>" +
       '<div class="card-stage">' +
-      '<div class="flashcard' + (state.flash.flipped ? " is-flipped" : "") + '" tabindex="0" role="button" aria-pressed="' + state.flash.flipped + '" aria-label="Flashcard, tap to flip" data-action="flash-flip-card">' +
+      '<div class="flashcard' + (state.flash.flipped ? " is-flipped" : "") + '" tabindex="0" role="button" aria-pressed="' + state.flash.flipped + '" aria-label="Flashcard, tap to flip" data-action="flash-flip-card" data-side="' + visibleSide + '">' +
       '<div class="flashcard-inner">' +
-      '<div class="card-face card-face-front">' +
+      '<div class="card-face card-face-front card-face-' + frontLangCode + '">' +
+      '<p class="card-lang-label">' + (frontLangCode === "ms" ? "MELAYU" : "ENGLISH") + "</p>" +
       '<p class="card-topic">' + esc(card.topic) + "</p>" +
       '<p class="card-term"' + frontLang + ">" + esc(frontText) + "</p>" +
       '<p class="card-hint">Tap to reveal</p>' +
       "</div>" +
-      '<div class="card-face card-face-back">' +
+      '<div class="card-face card-face-back card-face-' + backLangCode + '">' +
+      '<p class="card-lang-label">' + (backLangCode === "ms" ? "MELAYU" : "ENGLISH") + "</p>" +
       '<p class="card-topic">' + esc(card.topic) + "</p>" +
       '<p class="card-term"' + backLang + ">" + esc(backText) + "</p>" +
       (card.note ? '<p class="card-note">' + esc(card.note) + "</p>" : "") +
@@ -174,7 +302,8 @@
       '<button type="button" class="btn btn-primary flip-btn" data-action="flash-flip">' + ICONS.rotate + " Flip</button>" +
       '<button type="button" class="btn" data-action="flash-next"><span class="visually-hidden">Next card</span>' + ICONS.chevronRight + "</button>" +
       "</div>" +
-      '<div class="flash-shuffle-row"><button type="button" class="btn btn-ghost" data-action="flash-shuffle">' + ICONS.shuffle + " Shuffle</button></div>";
+      '<div class="flash-shuffle-row"><button type="button" class="btn btn-ghost" data-action="flash-shuffle">' + ICONS.shuffle + " Shuffle</button></div>" +
+      panelHtml;
   }
 
   // ---------- Quiz question building ----------
@@ -192,8 +321,9 @@
     return out;
   }
 
-  function buildCardQuestion(card, allCards) {
-    var sameTopicPool = dedupeByEn(allCards.filter(function (c) { return c.topic === card.topic; }), card.en);
+  function buildCardQuestion(card, allCards, distractorPool) {
+    var pool = distractorPool || allCards.filter(function (c) { return c.topic === card.topic; });
+    var sameTopicPool = dedupeByEn(pool, card.en);
     var distractors = shuffle(sameTopicPool).slice(0, 3);
     if (distractors.length < 3) {
       var used = new Set([card.en].concat(distractors.map(function (d) { return d.en; })));
@@ -227,13 +357,25 @@
     return { low: low, mid: mid, high: high };
   }
 
-  function startCardsQuiz(kind, topic, countOverride) {
+  function startCardsQuiz(kind, topicOrGroup, countOverride) {
     var set = currentSet();
-    var pool = kind === "all" ? set.cards : set.cards.filter(function (c) { return c.topic === topic; });
+    var pool, title, distractorPool;
+    if (kind === "all") {
+      pool = set.cards;
+      title = "All topics";
+      distractorPool = null;
+    } else if (kind === "group") {
+      pool = set.cards.filter(function (c) { return topicOrGroup.topics.indexOf(c.topic) !== -1; });
+      title = topicOrGroup.label;
+      distractorPool = pool;
+    } else {
+      pool = set.cards.filter(function (c) { return c.topic === topicOrGroup; });
+      title = topicOrGroup;
+      distractorPool = pool;
+    }
     var count = kind === "all" ? countOverride : Math.min(20, pool.length);
     var chosen = shuffle(pool).slice(0, Math.min(count, pool.length));
-    var questions = chosen.map(function (card) { return buildCardQuestion(card, set.cards); });
-    var title = kind === "all" ? "All topics" : topic;
+    var questions = chosen.map(function (card) { return buildCardQuestion(card, set.cards, distractorPool); });
     state.activeQuiz = { source: "cards", title: title, questions: questions, index: 0, selected: null, checked: false, score: 0, screen: "run" };
     render();
   }
@@ -252,7 +394,6 @@
 
   function renderQuizSetup() {
     var set = currentSet();
-    var topics = getTopics(set);
 
     if (state.quizSetup.screen === "count") {
       var counts = computeCounts(set.cards.length);
@@ -265,15 +406,32 @@
         "</div>";
     }
 
+    var groups = getPresentGroups(set);
+    var expanded = state.quizSetup.expanded;
+
+    var groupsHtml = groups.map(function (g) {
+      var n = set.cards.filter(function (c) { return g.topics.indexOf(c.topic) !== -1; }).length;
+      var isExpanded = expanded.has(g.id);
+      var subItems = !isExpanded ? "" : '<div class="quiz-group-subitems">' + g.topics.map(function (t) {
+        var tn = set.cards.filter(function (c) { return c.topic === t; }).length;
+        return '<button type="button" class="setup-item" data-action="quiz-topic" data-topic="' + esc(t) + '"><span class="setup-item-title">' + esc(t) + "</span><span class=\"setup-item-meta\">" + tn + " terms</span></button>";
+      }).join("") + "</div>";
+
+      return '<div class="quiz-group">' +
+        '<div class="quiz-group-row">' +
+        '<button type="button" class="setup-item quiz-group-start" data-action="quiz-group" data-group="' + esc(g.id) + '"><span class="setup-item-title">' + esc(g.label) + "</span><span class=\"setup-item-meta\">" + n + " terms</span></button>" +
+        '<button type="button" class="quiz-group-expand" data-action="quiz-group-expand" data-group="' + esc(g.id) + '" aria-expanded="' + isExpanded + '" aria-label="' + (isExpanded ? "Collapse " : "Expand ") + esc(g.label) + ' topics">' + ICONS.chevronRight + "</button>" +
+        "</div>" +
+        subItems +
+        "</div>";
+    }).join("");
+
     return '<p class="section-label">' + esc(set.label) + " quiz</p>" +
       '<div class="setup-list">' +
       '<button type="button" class="setup-item" data-action="quiz-random-topic"><span class="setup-item-title">Random topic</span></button>' +
       '<button type="button" class="setup-item" data-action="quiz-all-topics"><span class="setup-item-title">All topics</span><span class="setup-item-meta">' + set.cards.length + " terms</span></button>" +
       '<hr class="setup-divider">' +
-      topics.map(function (t) {
-        var n = set.cards.filter(function (c) { return c.topic === t; }).length;
-        return '<button type="button" class="setup-item" data-action="quiz-topic" data-topic="' + esc(t) + '"><span class="setup-item-title">' + esc(t) + "</span><span class=\"setup-item-meta\">" + n + " terms</span></button>";
-      }).join("") +
+      groupsHtml +
       "</div>";
   }
 
@@ -361,8 +519,8 @@
           '<h2 class="conv-section-title">' + esc(conv.title) + " — " + esc(conv.subtitle) + "</h2>" : "";
         var lines = conv.lines.map(function (line) {
           return '<div class="conv-line"><p class="conv-speaker">' + esc(line.speaker) + "</p>" +
-            '<p class="conv-ms" lang="ms">' + esc(line.ms) + "</p>" +
-            (showEnglish ? '<p class="conv-en">' + esc(line.en) + "</p>" : "") +
+            '<p class="conv-ms lang-ms" lang="ms">' + esc(line.ms) + "</p>" +
+            (showEnglish ? '<p class="conv-en lang-en">' + esc(line.en) + "</p>" : "") +
             "</div>";
         }).join("");
         return heading + lines;
@@ -381,7 +539,7 @@
       '<button type="button" class="setup-item" data-action="conv-all"><span class="setup-item-title">All conversations</span><span class="setup-item-meta">' + set.conversations.length + "</span></button>" +
       '<hr class="setup-divider">' +
       set.conversations.map(function (c) {
-        return '<button type="button" class="setup-item" data-action="conv-pick" data-id="' + esc(c.id) + '"><span><span class="setup-item-title">' + esc(c.title) + '</span><span class="setup-item-sub">' + esc(c.subtitle) + "</span></span></button>";
+        return '<button type="button" class="setup-item" data-action="conv-pick" data-id="' + esc(c.id) + '"><span class="setup-item-text"><span class="setup-item-title">' + esc(c.title) + '</span><span class="setup-item-sub">' + esc(c.subtitle) + "</span></span></button>";
       }).join("") +
       "</div>";
   }
@@ -417,7 +575,7 @@
     return filtered.map(function (g) {
       return '<h2 class="glossary-group-title">' + esc(g.heading) + "</h2>" +
         g.cards.map(function (c) {
-          return '<div class="glossary-row"><p class="glossary-ms" lang="ms">' + esc(c.ms) + '</p><p class="glossary-en">' + esc(c.en) + "</p>" +
+          return '<div class="glossary-row"><p class="glossary-ms lang-ms" lang="ms">' + esc(c.ms) + '</p><p class="glossary-en lang-en">' + esc(c.en) + "</p>" +
             (c.note ? '<p class="glossary-note">' + esc(c.note) + "</p>" : "") +
             "</div>";
         }).join("");
@@ -458,7 +616,7 @@
     localStorage.setItem(MODE_KEY, mode);
     state.activeQuiz = null;
     resetFlashState();
-    state.quizSetup = { screen: "setup" };
+    state.quizSetup = { screen: "setup", expanded: new Set() };
     state.conv = { screen: "list", selection: null, showEnglish: true };
     state.table = { query: "" };
     render();
@@ -496,9 +654,34 @@
         recomputeFlashDeck();
         render();
         break;
-      case "flash-topic":
-        toggleFlashTopic(el.dataset.topic);
+      case "flash-topics-open":
+        openTopicsPanel();
+        break;
+      case "flash-topics-close":
+      case "flash-topics-backdrop":
+      case "flash-topics-done":
+        closeTopicsPanel();
+        break;
+      case "flash-group-toggle":
+        var toggleGroup = getPresentGroups(currentSet()).filter(function (g) { return g.id === el.dataset.group; })[0];
+        if (toggleGroup) {
+          var allSelected = toggleGroup.topics.every(function (t) { return state.flash.topics.has(t); });
+          toggleGroup.topics.forEach(function (t) {
+            if (allSelected) state.flash.topics.delete(t); else state.flash.topics.add(t);
+          });
+          recomputeFlashDeck();
+          render();
+        }
+        break;
+      case "flash-subtopic-toggle":
+        var subtopic = el.dataset.topic;
+        if (state.flash.topics.has(subtopic)) state.flash.topics.delete(subtopic); else state.flash.topics.add(subtopic);
         recomputeFlashDeck();
+        render();
+        break;
+      case "flash-group-expand":
+        var expandId = el.dataset.group;
+        if (state.flash.expanded.has(expandId)) state.flash.expanded.delete(expandId); else state.flash.expanded.add(expandId);
         render();
         break;
       case "flash-direction":
@@ -508,14 +691,13 @@
         break;
       case "flash-flip":
       case "flash-flip-card":
-        state.flash.flipped = !state.flash.flipped;
-        render();
+        toggleFlashFlip();
         break;
       case "flash-prev":
-        flashMove(-1);
+        animateFlashMove(-1);
         break;
       case "flash-next":
-        flashMove(1);
+        animateFlashMove(1);
         break;
       case "flash-shuffle":
         state.flash.deck = shuffle(state.flash.deck);
@@ -526,6 +708,15 @@
 
       case "quiz-topic":
         startCardsQuiz("topic", el.dataset.topic);
+        break;
+      case "quiz-group":
+        var quizGroup = getPresentGroups(currentSet()).filter(function (g) { return g.id === el.dataset.group; })[0];
+        if (quizGroup) startCardsQuiz("group", quizGroup);
+        break;
+      case "quiz-group-expand":
+        var quizExpandId = el.dataset.group;
+        if (state.quizSetup.expanded.has(quizExpandId)) state.quizSetup.expanded.delete(quizExpandId); else state.quizSetup.expanded.add(quizExpandId);
+        render();
         break;
       case "quiz-random-topic":
         var topics = getTopics(currentSet());
@@ -566,7 +757,7 @@
       case "quiz-results-new-topic":
         state.activeQuiz = null;
         state.mode = "quiz";
-        state.quizSetup = { screen: "setup" };
+        state.quizSetup = { screen: "setup", expanded: new Set() };
         render();
         break;
       case "quiz-results-back-conv":
@@ -615,34 +806,37 @@
   }
 
   function handleKeydown(e) {
+    if (state.mode === "flashcards" && state.flash.panelOpen) {
+      if (e.key === "Escape") { closeTopicsPanel(); e.preventDefault(); }
+      return;
+    }
     if (state.mode !== "flashcards" || state.activeQuiz) return;
     var activeTag = (document.activeElement && document.activeElement.tagName) || "";
     if (["INPUT", "SELECT", "TEXTAREA"].indexOf(activeTag) !== -1) return;
-    if (e.key === "ArrowLeft") { flashMove(-1); e.preventDefault(); }
-    else if (e.key === "ArrowRight") { flashMove(1); e.preventDefault(); }
+    if (e.key === "ArrowLeft") { animateFlashMove(-1); e.preventDefault(); }
+    else if (e.key === "ArrowRight") { animateFlashMove(1); e.preventDefault(); }
     else if ((e.key === " " || e.key === "Enter") && document.activeElement && document.activeElement.classList.contains("flashcard")) {
-      state.flash.flipped = !state.flash.flipped;
-      render();
+      toggleFlashFlip();
       e.preventDefault();
     }
   }
 
   var touchStartX = 0, touchStartY = 0, touchMoved = false;
   function handleTouchStart(e) {
-    if (state.mode !== "flashcards") return;
+    if (state.mode !== "flashcards" || state.flash.panelOpen) return;
     var t = e.touches[0];
     touchStartX = t.clientX; touchStartY = t.clientY; touchMoved = false;
   }
   function handleTouchMove(e) {
-    if (state.mode !== "flashcards") return;
+    if (state.mode !== "flashcards" || state.flash.panelOpen) return;
     var t = e.touches[0];
     if (Math.abs(t.clientX - touchStartX) > 10 || Math.abs(t.clientY - touchStartY) > 10) touchMoved = true;
   }
   function handleTouchEnd(e) {
-    if (state.mode !== "flashcards" || !touchMoved) return;
+    if (state.mode !== "flashcards" || state.flash.panelOpen || !touchMoved) return;
     var t = e.changedTouches[0];
     var dx = t.clientX - touchStartX, dy = t.clientY - touchStartY;
-    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) flashMove(dx < 0 ? 1 : -1);
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) animateFlashMove(dx < 0 ? 1 : -1);
   }
 
   function handleTableInput(e) {
@@ -654,9 +848,14 @@
 
   // ---------- Init ----------
 
-  fetch("data/stp-malay.json")
-    .then(function (res) { return res.json(); })
-    .then(function (data) {
+  Promise.all([
+    fetch("data/stp-malay.json").then(function (res) { return res.json(); }),
+    fetch("data/topic-groups.json").then(function (res) { return res.json(); })
+  ])
+    .then(function (results) {
+      var data = results[0];
+      topicGroups = results[1].groups;
+
       allSets = data.sets.concat([{
         id: "all",
         label: "All weeks",
@@ -672,7 +871,7 @@
       var savedSetId = localStorage.getItem(SET_KEY);
       var savedMode = localStorage.getItem(MODE_KEY);
 
-      state.setId = validIds.indexOf(savedSetId) !== -1 ? savedSetId : allSets[0].id;
+      state.setId = validIds.indexOf(savedSetId) !== -1 ? savedSetId : "all";
       localStorage.setItem(SET_KEY, state.setId);
 
       var initialMode = savedMode || (state.setId === "visit" ? "table" : "flashcards");
