@@ -1,0 +1,12 @@
+{
+ "groups": [
+  {"id": "time-numbers", "label": "Time & numbers", "topics": ["Time of Day", "Time & Numbers", "Time & Frequency", "Time & Availability", "Time & Weather", "Days", "Numbers", "Numbers & Quantity", "Numbers & Math", "Ordinal Numbers"]},
+  {"id": "people-family", "label": "People & family", "topics": ["Family", "Family & People", "Family & Marital Status", "Family & Social", "Pronouns", "Emotions & Feelings"]},
+  {"id": "body-health", "label": "Body & health", "topics": ["Body & Health", "Body Parts & Accessories", "Health, Symptoms & Care", "Health Conditions", "Senses"]},
+  {"id": "food-daily", "label": "Food & daily life", "topics": ["Food", "Food & Objects", "Family, Food & Objects", "Fruits", "Clothing", "Colours", "Daily Life & Home"]},
+  {"id": "places", "label": "Places & directions", "topics": ["Places & Prepositions", "Places & Quantifiers", "Transport & Places", "Directions & Levels"]},
+  {"id": "work-community", "label": "Work & community", "topics": ["Work Terms", "Work & Retirement", "Government & Community", "Community Events", "Education", "Culture & Trivia", "National Anthem (2nd Verse)"]},
+  {"id": "words-grammar", "label": "Everyday words & grammar", "topics": ["Basics", "Action Verbs", "Actions", "Descriptive Words", "Question Words", "Courtesy Words", "Conversational Fillers", "Grammar Words", "Grammar & Connectors", "Word Building"]},
+  {"id": "scripts", "label": "Scripts & phrases", "topics": ["Resident Survey Phrases", "Reflection & Interview Questions", "Introduction Script", "Greeting & Response", "Community Hub", "Event Details", "Family & Housing", "Employment & Support", "Health", "Daily Living & Community", "Closing"]}
+ ]
+}
