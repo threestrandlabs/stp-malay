@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.0.0] - 2026-11-18
+
+### Changed
+
+- Full redesign (Madeleine): compact top bar with one filter pill and a single filter bottom sheet (week, topic groups and subtopics, direction, Show N cards), thin progress bar with counter, bottom tab bar with icons, card-first flashcards with sage Malay / sand English faces and examples on the back, thumb-zone controls, quiz option states with score and Next question, chat-bubble conversations with BM / BM + EN / EN switch and dialogue navigation, glossary grouped by topic with a pinned search, unified buttons/toggles/chips/radii and 8pt spacing.
+
+### Added
+
+- Self-hosted Instrument Sans and Newsreader (SIL Open Font License) in `fonts/`.
+
+### Kept
+
+- All weeks default, remembered choices, flip/slide motion with reduced-motion fallback, House Visit Guide table-first with no quiz, all 497 cards and 29 conversations.
+
 ## [1.1.0] - 2026-11-18
 
 ### Fixed

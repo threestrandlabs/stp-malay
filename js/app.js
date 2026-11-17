@@ -3,12 +3,17 @@
 
   var SET_KEY = "stpMalay.setId";
   var MODE_KEY = "stpMalay.mode";
-  var WEEK_IDS = ["1", "2", "3", "4", "5", "6"];
 
+  var pillBtn = document.getElementById("filter-pill-btn");
+  var pillLabel = document.getElementById("filter-pill-label");
+  var progressRow = document.getElementById("progress-row");
+  var progressFill = document.getElementById("progress-fill");
+  var progressCount = document.getElementById("progress-count");
   var viewEl = document.getElementById("view");
-  var setSelectEl = document.getElementById("set-select");
-  var termCountEl = document.getElementById("term-count");
-  var modeButtons = Array.prototype.slice.call(document.querySelectorAll(".mode-btn"));
+  var footerEl = document.getElementById("footer-controls");
+  var tabbarEl = document.getElementById("tabbar");
+  var sheetRootEl = document.getElementById("sheet-root");
+  var appEl = document.querySelector(".app");
 
   var allSets = [];
   var topicGroups = [];
@@ -16,9 +21,10 @@
     setId: null,
     mode: null,
     activeQuiz: null,
-    flash: { topics: new Set(), deck: [], pos: 0, flipped: false, direction: "ms-en", panelOpen: false, expanded: new Set() },
+    flash: { topics: new Set(), deck: [], pos: 0, flipped: false, direction: "ms-en" },
+    filterSheet: { open: false, week: null, topics: new Set(), direction: "ms-en", expanded: new Set() },
     quizSetup: { screen: "setup", expanded: new Set() },
-    conv: { screen: "list", selection: null, showEnglish: true },
+    conv: { screen: "list", selection: null, mode: "both", index: 0 },
     table: { query: "" }
   };
 
@@ -32,9 +38,14 @@
     chevronRight: tplHtml("tpl-icon-chevron-right"),
     shuffle: tplHtml("tpl-icon-shuffle"),
     rotate: tplHtml("tpl-icon-rotate"),
+    rotateSm: tplHtml("tpl-icon-rotate-sm"),
     check: tplHtml("tpl-icon-check"),
     x: tplHtml("tpl-icon-x"),
-    search: tplHtml("tpl-icon-search")
+    search: tplHtml("tpl-icon-search"),
+    layers: tplHtml("tpl-icon-layers"),
+    question: tplHtml("tpl-icon-question"),
+    chat: tplHtml("tpl-icon-chat"),
+    grid: tplHtml("tpl-icon-grid")
   };
 
   function esc(value) {
@@ -52,9 +63,13 @@
     return a;
   }
 
-  function currentSet() {
-    var set = allSets.filter(function (s) { return s.id === state.setId; })[0];
+  function setById(id) {
+    var set = allSets.filter(function (s) { return s.id === id; })[0];
     return set || allSets[0];
+  }
+
+  function currentSet() {
+    return setById(state.setId);
   }
 
   function getTopics(set) {
@@ -84,14 +99,36 @@
     return present;
   }
 
+  function weekLabel(set) {
+    return set.label;
+  }
+
+  function topicsLabel(set, selected) {
+    var allTopics = getTopics(set);
+    if (!allTopics.length) return "No topics";
+    if (selected.size === allTopics.length) return "All topics";
+    if (selected.size === 0) return "No topics";
+    var groups = getPresentGroups(set);
+    var fullGroups = groups.filter(function (g) { return g.topics.every(function (t) { return selected.has(t); }); });
+    var anyPartial = groups.some(function (g) {
+      var n = g.topics.filter(function (t) { return selected.has(t); }).length;
+      return n > 0 && n < g.topics.length;
+    });
+    if (!anyPartial && fullGroups.length) return fullGroups.length + (fullGroups.length === 1 ? " group" : " groups");
+    return selected.size + (selected.size === 1 ? " topic" : " topics");
+  }
+
+  function updatePillLabel() {
+    var set = currentSet();
+    pillLabel.textContent = weekLabel(set) + " · " + topicsLabel(set, state.flash.topics);
+  }
+
   // ---------- Flashcards ----------
 
   function resetFlashState() {
     var set = currentSet();
     state.flash.topics = new Set(getTopics(set));
     state.flash.direction = "ms-en";
-    state.flash.panelOpen = false;
-    state.flash.expanded = new Set();
     recomputeFlashDeck();
   }
 
@@ -101,82 +138,6 @@
     state.flash.deck = shuffle(filtered);
     state.flash.pos = 0;
     state.flash.flipped = false;
-  }
-
-  function openTopicsPanel() {
-    state.flash.panelOpen = true;
-    render();
-    var panel = document.getElementById("topics-panel");
-    if (panel) panel.focus();
-  }
-
-  function closeTopicsPanel() {
-    state.flash.panelOpen = false;
-    render();
-    var trigger = document.querySelector(".topics-trigger");
-    if (trigger) trigger.focus();
-  }
-
-  function flashTopicsSummaryLabel(set) {
-    var allTopics = getTopics(set);
-    var selected = state.flash.topics;
-    if (selected.size === allTopics.length) return "Topics: All";
-    if (selected.size === 0) return "Topics: None";
-    var groups = getPresentGroups(set);
-    var fullGroups = groups.filter(function (g) { return g.topics.every(function (t) { return selected.has(t); }); });
-    var anyPartial = groups.some(function (g) {
-      var n = g.topics.filter(function (t) { return selected.has(t); }).length;
-      return n > 0 && n < g.topics.length;
-    });
-    if (!anyPartial && fullGroups.length) return "Topics: " + fullGroups.length + " of " + groups.length + " groups";
-    return "Topics: " + selected.size + " subtopics";
-  }
-
-  function renderTopicsPanel(set) {
-    var groups = getPresentGroups(set);
-    var selected = state.flash.topics;
-    var expanded = state.flash.expanded;
-
-    var rows = groups.map(function (g) {
-      var selectedCount = g.topics.filter(function (t) { return selected.has(t); }).length;
-      var checked = selectedCount === 0 ? "false" : selectedCount === g.topics.length ? "true" : "mixed";
-      var count = set.cards.filter(function (c) { return g.topics.indexOf(c.topic) !== -1; }).length;
-      var isExpanded = expanded.has(g.id);
-      var subRows = !isExpanded ? "" : '<div class="topic-subtopic-list">' + g.topics.map(function (t) {
-        var n = set.cards.filter(function (c) { return c.topic === t; }).length;
-        return '<button type="button" class="topic-row-sub" role="checkbox" aria-checked="' + selected.has(t) + '" data-action="flash-subtopic-toggle" data-topic="' + esc(t) + '">' +
-          '<span class="topic-check" aria-hidden="true"></span>' +
-          '<span class="topic-row-label">' + esc(t) + "</span>" +
-          '<span class="topic-row-count">' + n + "</span>" +
-          "</button>";
-      }).join("") + "</div>";
-
-      return '<div class="topic-group">' +
-        '<div class="topic-row-group">' +
-        '<button type="button" class="topic-row-main" role="checkbox" aria-checked="' + checked + '" data-action="flash-group-toggle" data-group="' + esc(g.id) + '">' +
-        '<span class="topic-check" aria-hidden="true"></span>' +
-        '<span class="topic-row-label">' + esc(g.label) + "</span>" +
-        '<span class="topic-row-count">' + count + "</span>" +
-        "</button>" +
-        '<button type="button" class="topic-expand-btn" data-action="flash-group-expand" data-group="' + esc(g.id) + '" aria-expanded="' + isExpanded + '" aria-label="' + (isExpanded ? "Collapse " : "Expand ") + esc(g.label) + ' topics">' + ICONS.chevronRight + "</button>" +
-        "</div>" +
-        subRows +
-        "</div>";
-    }).join("");
-
-    var doneLabel = state.flash.deck.length ? "Show " + state.flash.deck.length + " cards" : "Done";
-
-    return '<div class="topics-overlay" data-action="flash-topics-backdrop"></div>' +
-      '<div class="topics-panel" id="topics-panel" role="dialog" aria-modal="true" aria-labelledby="topics-panel-title" tabindex="-1">' +
-      '<div class="topics-panel-header"><h2 class="topics-panel-title" id="topics-panel-title">Topics</h2>' +
-      '<button type="button" class="icon-btn btn-ghost" data-action="flash-topics-close" aria-label="Close">' + ICONS.x + "</button></div>" +
-      '<div class="topics-panel-quick">' +
-      '<button type="button" class="btn btn-ghost" data-action="flash-topics-all">All</button>' +
-      '<button type="button" class="btn btn-ghost" data-action="flash-topics-none">None</button>' +
-      "</div>" +
-      '<div class="topics-panel-list">' + rows + "</div>" +
-      '<div class="topics-panel-footer"><button type="button" class="btn btn-primary" data-action="flash-topics-done">' + doneLabel + "</button></div>" +
-      "</div>";
   }
 
   function flashMove(delta) {
@@ -217,18 +178,15 @@
     flashAnimating = true;
     var dir = delta > 0 ? "next" : "prev";
     var outDuration = reducedMotion() ? 120 : 220;
-    cardEl.setAttribute("data-anim", "out-" + dir);
     cardEl.classList.add("anim-out-" + dir);
     setTimeout(function () {
       flashMove(delta);
       var newCardEl = viewEl.querySelector(".flashcard");
       if (newCardEl) {
-        newCardEl.setAttribute("data-anim", "in-" + dir);
         newCardEl.classList.add("anim-in-" + dir);
         requestAnimationFrame(function () {
           requestAnimationFrame(function () {
             newCardEl.classList.remove("anim-in-" + dir);
-            newCardEl.removeAttribute("data-anim");
           });
         });
       }
@@ -239,18 +197,10 @@
   function renderFlashcards() {
     var set = currentSet();
     var topics = getTopics(set);
-    var panelHtml = state.flash.panelOpen ? renderTopicsPanel(set) : "";
-    var topicsButton = '<button type="button" class="btn topics-trigger" data-action="flash-topics-open" aria-haspopup="dialog">' + esc(flashTopicsSummaryLabel(set)) + "</button>";
-
-    if (!topics.length) {
-      return topicsButton + '<p class="empty-state">No topics in this set.</p>' + panelHtml;
-    }
+    if (!topics.length) return '<p class="empty-state">No topics in this set.</p>';
 
     var deck = state.flash.deck;
-    if (!deck.length) {
-      return '<div class="flash-toolbar">' + topicsButton + "</div>" +
-        '<p class="empty-state">No topics selected. Choose a topic to study.</p>' + panelHtml;
-    }
+    if (!deck.length) return '<p class="empty-state">No topics selected. Open the filter to choose a topic.</p>';
 
     var card = deck[state.flash.pos];
     var msFirst = state.flash.direction === "ms-en";
@@ -259,51 +209,45 @@
     var frontText = msFirst ? card.ms : card.en;
     var frontLang = msFirst ? ' lang="ms"' : "";
     var backText = msFirst ? card.en : card.ms;
+    var backSubText = msFirst ? card.ms : card.en;
     var backLang = msFirst ? "" : ' lang="ms"';
+    var backSubLang = msFirst ? ' lang="ms"' : "";
     var visibleSide = state.flash.flipped ? backLangCode : frontLangCode;
 
     var examplesHtml = "";
     if (card.examples && card.examples.length) {
       examplesHtml = '<div class="card-examples"><p class="card-examples-title">Examples</p>' +
         card.examples.map(function (ex) {
-          return '<div class="example-row"><span class="example-ms lang-ms" lang="ms">' + esc(ex.ms) + '</span> — <span class="example-en lang-en">' + esc(ex.en) + "</span></div>";
+          return '<div class="example-row"><span class="example-ms" lang="ms">' + esc(ex.ms) + '</span><span class="example-en">' + esc(ex.en) + "</span></div>";
         }).join("") + "</div>";
     }
 
-    return '<div class="flash-toolbar">' +
-      topicsButton +
-      '<div class="direction-toggle" role="group" aria-label="Direction">' +
-      '<button type="button" data-action="flash-direction" data-direction="ms-en" aria-pressed="' + msFirst + '">BM &rarr; EN</button>' +
-      '<button type="button" data-action="flash-direction" data-direction="en-ms" aria-pressed="' + !msFirst + '">EN &rarr; BM</button>' +
-      "</div>" +
-      '<span class="flash-counter">' + (state.flash.pos + 1) + " / " + deck.length + "</span>" +
-      "</div>" +
-      '<div class="card-stage">' +
+    return '<div class="card-stage">' +
       '<div class="flashcard' + (state.flash.flipped ? " is-flipped" : "") + '" tabindex="0" role="button" aria-pressed="' + state.flash.flipped + '" aria-label="Flashcard, tap to flip" data-action="flash-flip-card" data-side="' + visibleSide + '">' +
       '<div class="flashcard-inner">' +
       '<div class="card-face card-face-front card-face-' + frontLangCode + '">' +
-      '<p class="card-lang-label">' + (frontLangCode === "ms" ? "MELAYU" : "ENGLISH") + "</p>" +
-      '<p class="card-topic">' + esc(card.topic) + "</p>" +
-      '<p class="card-term"' + frontLang + ">" + esc(frontText) + "</p>" +
-      '<p class="card-hint">Tap to reveal</p>' +
+      '<div class="card-face-head"><p class="card-lang-label">' + (frontLangCode === "ms" ? "MELAYU" : "ENGLISH") + '</p><p class="card-topic">' + esc(card.topic) + "</p></div>" +
+      '<div class="card-body"><p class="card-term-front"' + frontLang + ">" + esc(frontText) + "</p></div>" +
+      '<div class="card-hint">' + ICONS.rotateSm + " Tap card to flip</div>" +
       "</div>" +
       '<div class="card-face card-face-back card-face-' + backLangCode + '">' +
-      '<p class="card-lang-label">' + (backLangCode === "ms" ? "MELAYU" : "ENGLISH") + "</p>" +
-      '<p class="card-topic">' + esc(card.topic) + "</p>" +
-      '<p class="card-term"' + backLang + ">" + esc(backText) + "</p>" +
+      '<div class="card-face-head"><p class="card-lang-label">' + (backLangCode === "ms" ? "MELAYU" : "ENGLISH") + '</p><p class="card-topic">' + esc(card.topic) + "</p></div>" +
+      '<div class="card-body"><p class="card-term-back"' + backLang + ">" + esc(backText) + '</p><p class="card-term-sub"' + backSubLang + ">" + esc(backSubText) + "</p></div>" +
       (card.note ? '<p class="card-note">' + esc(card.note) + "</p>" : "") +
-      "</div>" +
-      "</div>" +
-      "</div>" +
-      "</div>" +
       examplesHtml +
-      '<div class="flash-controls">' +
-      '<button type="button" class="btn" data-action="flash-prev">' + ICONS.chevronLeft + '<span class="visually-hidden">Previous card</span></button>' +
-      '<button type="button" class="btn btn-primary flip-btn" data-action="flash-flip">' + ICONS.rotate + " Flip</button>" +
-      '<button type="button" class="btn" data-action="flash-next"><span class="visually-hidden">Next card</span>' + ICONS.chevronRight + "</button>" +
       "</div>" +
-      '<div class="flash-shuffle-row"><button type="button" class="btn btn-ghost" data-action="flash-shuffle">' + ICONS.shuffle + " Shuffle</button></div>" +
-      panelHtml;
+      "</div>" +
+      "</div>" +
+      "</div>";
+  }
+
+  function renderFlashFooter() {
+    return '<div class="thumb-zone" style="display:flex;gap:8px;">' +
+      '<button type="button" class="icon-btn shuffle-btn" data-action="flash-shuffle" aria-label="Shuffle">' + ICONS.shuffle + "</button>" +
+      '<button type="button" class="icon-btn" data-action="flash-prev" aria-label="Previous card">' + ICONS.chevronLeft + "</button>" +
+      '<button type="button" class="btn btn-primary flip-btn" data-action="flash-flip">' + ICONS.rotate + " Flip</button>" +
+      '<button type="button" class="icon-btn" data-action="flash-next" aria-label="Next card">' + ICONS.chevronRight + "</button>" +
+      "</div>";
   }
 
   // ---------- Quiz question building ----------
@@ -333,7 +277,7 @@
     var optionCards = shuffle([card].concat(distractors));
     var options = optionCards.map(function (c) { return c.en; });
     var correctIndex = optionCards.indexOf(card);
-    return { kind: "term", prompt: card.ms, topic: card.topic, options: options, correctIndex: correctIndex };
+    return { kind: "term", prompt: card.ms, topic: card.topic, options: options, correctIndex: correctIndex, correctText: card.en };
   }
 
   function buildConvQuestion(q) {
@@ -341,7 +285,7 @@
     var shuffled = shuffle(tagged);
     var correctIndex = -1;
     shuffled.forEach(function (o, i) { if (o.isCorrect) correctIndex = i; });
-    return { kind: "question", prompt: q.q, options: shuffled.map(function (o) { return o.text; }), correctIndex: correctIndex };
+    return { kind: "question", prompt: q.q, options: shuffled.map(function (o) { return o.text; }), correctIndex: correctIndex, correctText: shuffled[correctIndex].text };
   }
 
   function computeCounts(n) {
@@ -397,7 +341,7 @@
 
     if (state.quizSetup.screen === "count") {
       var counts = computeCounts(set.cards.length);
-      return '<div class="back-row"><button type="button" class="btn btn-ghost" data-action="quiz-setup-back">' + ICONS.chevronLeft + " Back</button></div>" +
+      return '<div class="back-row"><button type="button" class="back-link" data-action="quiz-setup-back">' + ICONS.chevronLeft + " Back</button></div>" +
         '<p class="section-label">All topics &middot; choose length</p>' +
         '<div class="count-picker">' +
         '<button type="button" class="count-option" data-action="quiz-start-all" data-count="' + counts.low + '"><strong>' + counts.low + "</strong><span>Shorter</span></button>" +
@@ -412,15 +356,15 @@
     var groupsHtml = groups.map(function (g) {
       var n = set.cards.filter(function (c) { return g.topics.indexOf(c.topic) !== -1; }).length;
       var isExpanded = expanded.has(g.id);
-      var subItems = !isExpanded ? "" : '<div class="quiz-group-subitems">' + g.topics.map(function (t) {
+      var subItems = !isExpanded ? "" : '<div class="setup-group-subitems">' + g.topics.map(function (t) {
         var tn = set.cards.filter(function (c) { return c.topic === t; }).length;
         return '<button type="button" class="setup-item" data-action="quiz-topic" data-topic="' + esc(t) + '"><span class="setup-item-title">' + esc(t) + "</span><span class=\"setup-item-meta\">" + tn + " terms</span></button>";
       }).join("") + "</div>";
 
-      return '<div class="quiz-group">' +
-        '<div class="quiz-group-row">' +
-        '<button type="button" class="setup-item quiz-group-start" data-action="quiz-group" data-group="' + esc(g.id) + '"><span class="setup-item-title">' + esc(g.label) + "</span><span class=\"setup-item-meta\">" + n + " terms</span></button>" +
-        '<button type="button" class="quiz-group-expand" data-action="quiz-group-expand" data-group="' + esc(g.id) + '" aria-expanded="' + isExpanded + '" aria-label="' + (isExpanded ? "Collapse " : "Expand ") + esc(g.label) + ' topics">' + ICONS.chevronRight + "</button>" +
+      return '<div class="setup-group">' +
+        '<div class="setup-group-row">' +
+        '<button type="button" class="setup-item" data-action="quiz-group" data-group="' + esc(g.id) + '"><span class="setup-item-title">' + esc(g.label) + "</span><span class=\"setup-item-meta\">" + n + " terms</span></button>" +
+        '<button type="button" class="setup-group-expand" data-action="quiz-group-expand" data-group="' + esc(g.id) + '" aria-expanded="' + isExpanded + '" aria-label="' + (isExpanded ? "Collapse " : "Expand ") + esc(g.label) + ' topics">' + ICONS.chevronRight + "</button>" +
         "</div>" +
         subItems +
         "</div>";
@@ -435,7 +379,7 @@
       "</div>";
   }
 
-  // ---------- Quiz run / results (shared by quiz mode and conversation quiz) ----------
+  // ---------- Quiz run / results ----------
 
   function renderQuizFlow() {
     var aq = state.activeQuiz;
@@ -449,6 +393,7 @@
     var termMarkup = q.kind === "term" ?
       '<p class="quiz-term" lang="ms">' + esc(q.prompt) + "</p>" :
       '<p class="quiz-term">' + esc(q.prompt) + "</p>";
+    var promptLabel = q.kind === "term" ? "What does this mean?" : "Answer the question";
 
     var optionsMarkup = q.options.map(function (opt, i) {
       var cls = "quiz-option";
@@ -457,30 +402,35 @@
       if (aq.checked) {
         if (i === q.correctIndex) { cls += " is-correct"; icon = '<span class="quiz-option-icon">' + ICONS.check + "</span>"; }
         else if (i === aq.selected) { cls += " is-wrong"; icon = '<span class="quiz-option-icon">' + ICONS.x + "</span>"; }
+        else { cls += " is-dimmed"; }
       }
-      return '<button type="button" class="' + cls + '" data-action="quiz-select" data-index="' + i + '" aria-pressed="' + pressed + '"' + (aq.checked ? " disabled" : "") + "><span>" + esc(opt) + "</span>" + icon + "</button>";
+      return '<button type="button" class="' + cls + '" data-action="quiz-select" data-index="' + i + '" aria-pressed="' + pressed + '"' + (aq.checked ? " disabled" : "") + '><span class="quiz-option-badge">' + String.fromCharCode(65 + i) + '</span><span class="quiz-option-text">' + esc(opt) + "</span>" + icon + "</button>";
     }).join("");
 
     var feedback = '<p class="quiz-feedback" aria-live="polite"></p>';
     if (aq.checked) {
       var correct = aq.selected === q.correctIndex;
-      feedback = '<p class="quiz-feedback ' + (correct ? "is-correct" : "is-wrong") + '" aria-live="polite">' +
-        (correct ? ICONS.check + " Correct." : ICONS.x + " Not quite.") + "</p>";
+      feedback = '<p class="quiz-feedback ' + (correct ? "is-correct" : "") + '" aria-live="polite">' +
+        (correct ? "Correct." : 'Not quite. ' + esc(q.kind === "term" ? q.prompt : "") + (q.kind === "term" ? " means “" + esc(q.correctText) + "”." : "The correct answer is “" + esc(q.correctText) + "”.")) + "</p>";
     }
 
-    var actionButton = !aq.checked ?
-      '<button type="button" class="btn btn-primary" data-action="quiz-check"' + (aq.selected === null ? " disabled" : "") + ">Check</button>" :
-      '<button type="button" class="btn btn-primary" data-action="quiz-next">' + (aq.index + 1 >= total ? "See results" : "Next") + "</button>";
-
-    return '<div class="quiz-header">' +
-      '<p class="quiz-title">' + esc(aq.title) + " &middot; " + total + " question" + (total === 1 ? "" : "s") + "</p>" +
-      '<div class="quiz-progress"><span>Question ' + (aq.index + 1) + " / " + total + '</span><span>Score ' + aq.score + "</span></div>" +
-      '<div class="progress-bar"><div class="progress-bar-fill" style="width:' + Math.round((aq.index / total) * 100) + '%"></div></div>' +
-      "</div>" +
+    return '<div class="quiz-prompt-card">' +
+      '<div class="quiz-prompt-head"><p class="quiz-prompt-label">' + esc(promptLabel.toUpperCase()) + '</p><p class="card-topic">' + esc(aq.title) + "</p></div>" +
       termMarkup +
+      "</div>" +
       '<div class="quiz-options">' + optionsMarkup + "</div>" +
-      feedback +
-      '<div class="quiz-actions">' + actionButton + "</div>";
+      feedback;
+  }
+
+  function renderQuizFooter() {
+    var aq = state.activeQuiz;
+    if (!aq || aq.screen !== "run") return "";
+    var total = aq.questions.length;
+    var actionButton = !aq.checked ?
+      '<button type="button" class="btn btn-primary btn-block" data-action="quiz-check"' + (aq.selected === null ? " disabled" : "") + ">Check</button>" :
+      '<button type="button" class="btn btn-primary btn-block" data-action="quiz-next">' + (aq.index + 1 >= total ? "See results" : "Next question") + " " + ICONS.chevronRight + "</button>";
+    return '<div class="quiz-score-box"><span class="quiz-score-label">Score</span><span class="quiz-score-value">' + aq.score + " / " + total + "</span></div>" +
+      actionButton;
   }
 
   function renderQuizResults(aq) {
@@ -496,8 +446,8 @@
       '<button type="button" class="btn btn-primary" data-action="quiz-results-new-topic">Choose new topic</button>';
 
     return '<div class="quiz-results">' +
-      '<p class="quiz-score">' + aq.score + " / " + total + "</p>" +
-      '<p class="quiz-message">' + esc(message) + "</p>" +
+      '<p class="quiz-results-score">' + aq.score + " / " + total + "</p>" +
+      '<p class="quiz-results-message">' + esc(message) + "</p>" +
       '<div class="quiz-results-actions">' + actions + "</div>" +
       "</div>";
   }
@@ -512,25 +462,28 @@
     }
 
     if (state.conv.screen === "reading" && state.conv.selection) {
-      var selection = state.conv.selection;
-      var showEnglish = state.conv.showEnglish;
-      var body = selection.map(function (conv) {
-        var heading = selection.length > 1 ?
-          '<h2 class="conv-section-title">' + esc(conv.title) + " — " + esc(conv.subtitle) + "</h2>" : "";
-        var lines = conv.lines.map(function (line) {
-          return '<div class="conv-line"><p class="conv-speaker">' + esc(line.speaker) + "</p>" +
-            '<p class="conv-ms lang-ms" lang="ms">' + esc(line.ms) + "</p>" +
-            (showEnglish ? '<p class="conv-en lang-en">' + esc(line.en) + "</p>" : "") +
-            "</div>";
-        }).join("");
-        return heading + lines;
+      var all = set.conversations;
+      var conv = all[state.conv.index];
+      var mode = state.conv.mode;
+      var showMs = mode !== "en";
+      var showEn = mode !== "ms";
+
+      var heading = '<div class="conv-head"><p class="conv-dialogue-label">Dialogue ' + (state.conv.index + 1) + " of " + all.length + '</p><h2 class="conv-title">' + esc(conv.title) + '</h2><p class="conv-subtitle">' + esc(conv.subtitle) + "</p></div>";
+      var lines = conv.lines.map(function (line, i) {
+        var side = i % 2 === 0 ? "is-left" : "is-right";
+        return '<div class="conv-bubble-wrap ' + side + '"><span class="conv-speaker">' + esc(line.speaker) + '</span><div class="conv-bubble">' +
+          (showMs ? '<p class="conv-ms" lang="ms">' + esc(line.ms) + "</p>" : "") +
+          (showEn ? '<p class="conv-en">' + esc(line.en) + "</p>" : "") +
+          "</div></div>";
       }).join("");
 
-      return '<div class="back-row"><button type="button" class="btn btn-ghost" data-action="conv-back">' + ICONS.chevronLeft + " Back</button></div>" +
-        '<div class="conv-toolbar"><span class="section-label" style="margin:0">' + selection.length + " conversation" + (selection.length > 1 ? "s" : "") + "</span>" +
-        '<button type="button" class="btn btn-ghost" data-action="conv-toggle-en" aria-pressed="' + showEnglish + '">' + (showEnglish ? "Hide English" : "Show English") + "</button></div>" +
-        body +
-        '<div class="conv-actions"><button type="button" class="btn btn-primary" data-action="conv-take-quiz">Take quiz</button></div>';
+      return '<div class="back-row"><button type="button" class="back-link" data-action="conv-back">' + ICONS.chevronLeft + " Back to list</button></div>" +
+        '<div class="conv-reading">' +
+        heading +
+        '<div class="conv-messages">' + lines +
+        '<div class="conv-take-quiz-row"><button type="button" class="btn btn-primary btn-block" data-action="conv-take-quiz">Take quiz</button></div>' +
+        "</div>" +
+        "</div>";
     }
 
     return '<p class="section-label">' + esc(set.label) + " conversations</p>" +
@@ -544,6 +497,20 @@
       "</div>";
   }
 
+  function renderConvFooter() {
+    if (state.conv.screen !== "reading" || !state.conv.selection) return "";
+    var mode = state.conv.mode;
+    return '<div class="conv-controls">' +
+      '<button type="button" class="icon-btn" data-action="conv-prev" aria-label="Previous dialogue">' + ICONS.chevronLeft + "</button>" +
+      '<div class="segmented segmented-sm" role="group" aria-label="Show language">' +
+      '<button type="button" data-action="conv-mode" data-mode="ms" aria-pressed="' + (mode === "ms") + '">BM</button>' +
+      '<button type="button" data-action="conv-mode" data-mode="both" aria-pressed="' + (mode === "both") + '">BM + EN</button>' +
+      '<button type="button" data-action="conv-mode" data-mode="en" aria-pressed="' + (mode === "en") + '">EN</button>' +
+      "</div>" +
+      '<button type="button" class="icon-btn" data-action="conv-next" aria-label="Next dialogue">' + ICONS.chevronRight + "</button>" +
+      "</div>";
+  }
+
   // ---------- Table ----------
 
   function buildGlossaryGroups() {
@@ -551,10 +518,13 @@
     if (set.id === "visit") {
       return groupCardsByTopic(set.cards).map(function (g) { return { heading: g.topic, cards: g.cards }; });
     }
+    if (set.id !== "all") {
+      return groupCardsByTopic(set.cards).map(function (g) { return { heading: g.topic, cards: g.cards }; });
+    }
     var groups = [];
-    allSets.filter(function (s) { return WEEK_IDS.indexOf(s.id) !== -1 || s.id === "visit"; }).forEach(function (s) {
+    allSets.filter(function (s) { return s.id !== "all"; }).forEach(function (s) {
       groupCardsByTopic(s.cards).forEach(function (g) {
-        groups.push({ heading: s.label + " · " + g.topic, cards: g.cards });
+        groups.push({ heading: g.topic, cards: g.cards });
       });
     });
     return groups;
@@ -573,41 +543,216 @@
     if (!filtered.length) return '<p class="empty-state">No matches found.</p>';
 
     return filtered.map(function (g) {
-      return '<h2 class="glossary-group-title">' + esc(g.heading) + "</h2>" +
+      return '<div class="glossary-group-title"><span class="glossary-group-heading">' + esc(g.heading.toUpperCase()) + '</span><span class="glossary-group-count">' + g.cards.length + " word" + (g.cards.length === 1 ? "" : "s") + "</span></div>" +
+        '<div class="glossary-card">' +
         g.cards.map(function (c) {
-          return '<div class="glossary-row"><p class="glossary-ms lang-ms" lang="ms">' + esc(c.ms) + '</p><p class="glossary-en lang-en">' + esc(c.en) + "</p>" +
+          return '<div class="glossary-row"><p class="glossary-ms" lang="ms">' + esc(c.ms) + '</p><p class="glossary-en">' + esc(c.en) + "</p>" +
             (c.note ? '<p class="glossary-note">' + esc(c.note) + "</p>" : "") +
             "</div>";
-        }).join("");
+        }).join("") +
+        "</div>";
     }).join("");
   }
 
   function renderTableView() {
-    return '<div class="table-toolbar"><span class="table-search-icon">' + ICONS.search + '</span>' +
-      '<input type="search" class="table-search" id="table-search-input" placeholder="Search Malay or English" value="' + esc(state.table.query) + '" aria-label="Search glossary"></div>' +
-      '<div id="glossary-results">' + renderGlossaryResultsHTML(state.table.query) + "</div>";
+    return '<div id="glossary-results">' + renderGlossaryResultsHTML(state.table.query) + "</div>";
+  }
+
+  function renderTableFooter() {
+    var set = currentSet();
+    return '<div class="table-search-row"><span class="table-search-icon">' + ICONS.search + '</span>' +
+      '<input type="search" class="table-search" id="table-search-input" placeholder="Search ' + set.cards.length + ' words in BM or English" value="' + esc(state.table.query) + '" aria-label="Search glossary"></div>';
+  }
+
+  // ---------- Filter sheet ----------
+
+  function openFilterSheet() {
+    state.filterSheet = {
+      open: true,
+      week: state.setId,
+      topics: new Set(state.flash.topics),
+      direction: state.flash.direction,
+      expanded: new Set()
+    };
+    render();
+    var sheet = document.getElementById("filter-sheet");
+    if (sheet) sheet.focus();
+  }
+
+  function closeFilterSheet() {
+    state.filterSheet.open = false;
+    render();
+    pillBtn.focus();
+  }
+
+  function filterSheetDraftSet() {
+    return setById(state.filterSheet.week);
+  }
+
+  function filterSheetWeekChanged(newWeek) {
+    state.filterSheet.week = newWeek;
+    var draftSet = filterSheetDraftSet();
+    state.filterSheet.topics = new Set(getTopics(draftSet));
+    state.filterSheet.expanded = new Set();
+    render();
+  }
+
+  function renderFilterSheet() {
+    var fs = state.filterSheet;
+    var draftSet = filterSheetDraftSet();
+    var groups = getPresentGroups(draftSet);
+    var selected = fs.topics;
+    var expanded = fs.expanded;
+    var count = draftSet.cards.filter(function (c) { return selected.has(c.topic); }).length;
+
+    var weekChips = allSets.filter(function (s) { return s.id !== "visit"; }).sort(function (a, b) {
+      return (a.id === "all" ? -1 : 0) - (b.id === "all" ? -1 : 0);
+    }).map(function (s) {
+      var label = s.id === "all" ? "All" : s.id;
+      return '<button type="button" class="week-chip" data-action="filter-week" data-week="' + esc(s.id) + '" aria-pressed="' + (fs.week === s.id) + '">' + esc(label) + "</button>";
+    }).join("");
+    var visitSet = setById("visit");
+    var visitChip = '<button type="button" class="week-chip week-chip-wide" data-action="filter-week" data-week="visit" aria-pressed="' + (fs.week === "visit") + '">' + esc(visitSet.label) + "</button>";
+
+    var topicChips = groups.map(function (g) {
+      var selectedCount = g.topics.filter(function (t) { return selected.has(t); }).length;
+      var state2 = selectedCount === 0 ? "none" : selectedCount === g.topics.length ? "all" : "mixed";
+      var rowClass = "topic-chip-row" + (state2 === "all" ? " is-active" : state2 === "mixed" ? " is-mixed" : "");
+      var n = draftSet.cards.filter(function (c) { return g.topics.indexOf(c.topic) !== -1; }).length;
+      var isExpanded = expanded.has(g.id);
+      var subRows = !isExpanded ? "" : '<div class="subtopic-list">' + g.topics.map(function (t) {
+        var tn = draftSet.cards.filter(function (c) { return c.topic === t; }).length;
+        return '<button type="button" class="subtopic-row" role="checkbox" aria-checked="' + selected.has(t) + '" data-action="filter-subtopic-toggle" data-topic="' + esc(t) + '">' +
+          '<span class="topic-check" aria-hidden="true"></span>' +
+          '<span style="flex:1">' + esc(t) + "</span>" +
+          '<span class="setup-item-meta">' + tn + "</span>" +
+          "</button>";
+      }).join("") + "</div>";
+
+      var ariaChecked = state2 === "all" ? "true" : state2 === "mixed" ? "mixed" : "false";
+      return '<div class="' + rowClass + '">' +
+        '<button type="button" class="topic-chip-toggle" role="checkbox" aria-checked="' + ariaChecked + '" data-action="filter-group-toggle" data-group="' + esc(g.id) + '">' +
+        '<span>' + esc(g.label) + '</span><span class="chip-count">' + n + "</span>" +
+        "</button>" +
+        '<button type="button" class="topic-chip-expand" data-action="filter-group-expand" data-group="' + esc(g.id) + '" aria-expanded="' + isExpanded + '" aria-label="' + (isExpanded ? "Collapse " : "Expand ") + esc(g.label) + ' topics">' + ICONS.chevronRight + "</button>" +
+        "</div>" +
+        subRows;
+    }).join("");
+
+    return '<div class="sheet-scrim" data-action="filter-backdrop"></div>' +
+      '<div class="sheet" id="filter-sheet" role="dialog" aria-modal="true" aria-labelledby="filter-sheet-title" tabindex="-1">' +
+      '<div class="sheet-body">' +
+      '<div class="sheet-handle-row"><span class="sheet-handle" aria-hidden="true"></span></div>' +
+      '<div class="sheet-header"><h2 class="sheet-title" id="filter-sheet-title">Filter cards</h2>' +
+      '<button type="button" class="sheet-reset" data-action="filter-reset">Reset</button></div>' +
+      '<div class="sheet-section"><p class="sheet-label">Week</p><div class="week-chips">' + weekChips + "</div>" + visitChip + "</div>" +
+      '<div class="sheet-section"><p class="sheet-label">Topics</p><div class="topic-chip-list">' + topicChips + "</div></div>" +
+      '<div class="sheet-section"><p class="sheet-label">Direction</p>' +
+      '<div class="segmented" role="group" aria-label="Direction">' +
+      '<button type="button" data-action="filter-direction" data-direction="ms-en" aria-pressed="' + (fs.direction === "ms-en") + '">BM &rarr; EN</button>' +
+      '<button type="button" data-action="filter-direction" data-direction="en-ms" aria-pressed="' + (fs.direction === "en-ms") + '">EN &rarr; BM</button>' +
+      "</div></div>" +
+      "</div>" +
+      '<div class="sheet-footer">' +
+      '<button type="button" class="btn btn-primary btn-block" data-action="filter-apply">Show ' + count + " card" + (count === 1 ? "" : "s") + "</button>" +
+      "</div>" +
+      "</div>";
+  }
+
+  function applyFilterSheet() {
+    var fs = state.filterSheet;
+    var weekChanged = fs.week !== state.setId;
+    state.setId = fs.week;
+    localStorage.setItem(SET_KEY, state.setId);
+    state.flash.topics = fs.topics;
+    state.flash.direction = fs.direction;
+    recomputeFlashDeck();
+    if (weekChanged) {
+      state.quizSetup = { screen: "setup", expanded: new Set() };
+      state.conv = { screen: "list", selection: null, mode: "both", index: 0 };
+      state.table = { query: "" };
+      if (state.mode === "quiz" && state.setId === "visit") state.mode = "flashcards";
+      localStorage.setItem(MODE_KEY, state.mode);
+    }
+    state.filterSheet.open = false;
+    render();
+    pillBtn.focus();
+  }
+
+  function resetFilterSheet() {
+    var draftSet = filterSheetDraftSet();
+    state.filterSheet.topics = new Set(getTopics(draftSet));
+    state.filterSheet.direction = "ms-en";
+    render();
+  }
+
+  // ---------- Tab bar ----------
+
+  var TABS = [
+    { mode: "flashcards", label: "Flashcards", icon: "layers" },
+    { mode: "quiz", label: "Quiz", icon: "question" },
+    { mode: "conversation", label: "Conversation", icon: "chat" },
+    { mode: "table", label: "Table", icon: "grid" }
+  ];
+
+  function renderTabbar() {
+    return TABS.map(function (t) {
+      var hidden = t.mode === "quiz" && state.setId === "visit";
+      return '<button type="button" class="tab-btn" data-action="tab" data-mode="' + t.mode + '" aria-pressed="' + (state.mode === t.mode) + '"' + (hidden ? " hidden" : "") + '>' +
+        '<span class="tab-icon">' + ICONS[t.icon] + '</span><span class="tab-label">' + t.label + "</span>" +
+        "</button>";
+    }).join("");
   }
 
   // ---------- Top-level render / navigation ----------
 
   function render() {
-    setSelectEl.value = state.setId;
-    termCountEl.textContent = currentSet().cards.length + " terms";
-    modeButtons.forEach(function (btn) {
-      var m = btn.dataset.mode;
-      btn.hidden = m === "quiz" && state.setId === "visit";
-      btn.setAttribute("aria-pressed", String(m === state.mode));
-    });
+    updatePillLabel();
+    tabbarEl.innerHTML = renderTabbar();
+    sheetRootEl.innerHTML = state.filterSheet.open ? renderFilterSheet() : "";
+
+    var showProgress = !state.filterSheet.open && (
+      (!state.activeQuiz && state.mode === "flashcards") ||
+      (state.activeQuiz && state.activeQuiz.screen === "run")
+    );
+    progressRow.hidden = !showProgress;
+    if (showProgress) {
+      if (state.activeQuiz) {
+        var aq = state.activeQuiz;
+        var total = aq.questions.length;
+        progressFill.style.width = Math.round((aq.index / total) * 100) + "%";
+        progressCount.textContent = (aq.index + 1) + " / " + total;
+      } else {
+        var deck = state.flash.deck;
+        progressFill.style.width = deck.length ? Math.round(((state.flash.pos + 1) / deck.length) * 100) + "%" : "0%";
+        progressCount.textContent = deck.length ? (state.flash.pos + 1) + " / " + deck.length : "0 / 0";
+      }
+    }
 
     if (state.activeQuiz) {
       viewEl.innerHTML = renderQuizFlow();
+      setFooter(renderQuizFooter());
       return;
     }
 
-    if (state.mode === "flashcards") viewEl.innerHTML = renderFlashcards();
-    else if (state.mode === "quiz") viewEl.innerHTML = renderQuizSetup();
-    else if (state.mode === "conversation") viewEl.innerHTML = renderConversation();
-    else viewEl.innerHTML = renderTableView();
+    if (state.mode === "flashcards") {
+      viewEl.innerHTML = renderFlashcards();
+      setFooter(state.flash.deck.length ? renderFlashFooter() : "");
+    } else if (state.mode === "quiz") {
+      viewEl.innerHTML = renderQuizSetup();
+      setFooter("");
+    } else if (state.mode === "conversation") {
+      viewEl.innerHTML = renderConversation();
+      setFooter(renderConvFooter());
+    } else {
+      viewEl.innerHTML = renderTableView();
+      setFooter(renderTableFooter());
+    }
+  }
+
+  function setFooter(html) {
+    footerEl.innerHTML = html;
+    footerEl.hidden = !html;
   }
 
   function enterMode(mode) {
@@ -615,19 +760,10 @@
     state.mode = mode;
     localStorage.setItem(MODE_KEY, mode);
     state.activeQuiz = null;
-    resetFlashState();
     state.quizSetup = { screen: "setup", expanded: new Set() };
-    state.conv = { screen: "list", selection: null, showEnglish: true };
+    state.conv = { screen: "list", selection: null, mode: "both", index: 0 };
     state.table = { query: "" };
     render();
-  }
-
-  function enterSet(id, userChange) {
-    state.setId = id;
-    localStorage.setItem(SET_KEY, id);
-    if (userChange) {
-      enterMode(id === "visit" ? "table" : "flashcards");
-    }
   }
 
   function handleModeClick(mode) {
@@ -637,58 +773,58 @@
 
   // ---------- Events ----------
 
-  function handleViewClick(e) {
+  function handleClick(e) {
     var el = e.target.closest ? e.target.closest("[data-action]") : null;
     if (!el) return;
     var action = el.dataset.action;
     var aq = state.activeQuiz;
 
     switch (action) {
-      case "flash-topics-all":
-        state.flash.topics = new Set(getTopics(currentSet()));
-        recomputeFlashDeck();
+      case "tab":
+        handleModeClick(el.dataset.mode);
+        break;
+
+      case "filter-open":
+        openFilterSheet();
+        break;
+      case "filter-close":
+      case "filter-backdrop":
+        closeFilterSheet();
+        break;
+      case "filter-reset":
+        resetFilterSheet();
+        break;
+      case "filter-apply":
+        applyFilterSheet();
+        break;
+      case "filter-week":
+        filterSheetWeekChanged(el.dataset.week);
+        break;
+      case "filter-direction":
+        state.filterSheet.direction = el.dataset.direction;
         render();
         break;
-      case "flash-topics-none":
-        state.flash.topics = new Set();
-        recomputeFlashDeck();
-        render();
-        break;
-      case "flash-topics-open":
-        openTopicsPanel();
-        break;
-      case "flash-topics-close":
-      case "flash-topics-backdrop":
-      case "flash-topics-done":
-        closeTopicsPanel();
-        break;
-      case "flash-group-toggle":
-        var toggleGroup = getPresentGroups(currentSet()).filter(function (g) { return g.id === el.dataset.group; })[0];
+      case "filter-group-toggle":
+        var toggleGroup = getPresentGroups(filterSheetDraftSet()).filter(function (g) { return g.id === el.dataset.group; })[0];
         if (toggleGroup) {
-          var allSelected = toggleGroup.topics.every(function (t) { return state.flash.topics.has(t); });
+          var allSelected = toggleGroup.topics.every(function (t) { return state.filterSheet.topics.has(t); });
           toggleGroup.topics.forEach(function (t) {
-            if (allSelected) state.flash.topics.delete(t); else state.flash.topics.add(t);
+            if (allSelected) state.filterSheet.topics.delete(t); else state.filterSheet.topics.add(t);
           });
-          recomputeFlashDeck();
           render();
         }
         break;
-      case "flash-subtopic-toggle":
+      case "filter-subtopic-toggle":
         var subtopic = el.dataset.topic;
-        if (state.flash.topics.has(subtopic)) state.flash.topics.delete(subtopic); else state.flash.topics.add(subtopic);
-        recomputeFlashDeck();
+        if (state.filterSheet.topics.has(subtopic)) state.filterSheet.topics.delete(subtopic); else state.filterSheet.topics.add(subtopic);
         render();
         break;
-      case "flash-group-expand":
+      case "filter-group-expand":
         var expandId = el.dataset.group;
-        if (state.flash.expanded.has(expandId)) state.flash.expanded.delete(expandId); else state.flash.expanded.add(expandId);
+        if (state.filterSheet.expanded.has(expandId)) state.filterSheet.expanded.delete(expandId); else state.filterSheet.expanded.add(expandId);
         render();
         break;
-      case "flash-direction":
-        state.flash.direction = el.dataset.direction;
-        state.flash.flipped = false;
-        render();
-        break;
+
       case "flash-flip":
       case "flash-flip-card":
         toggleFlashFlip();
@@ -776,17 +912,23 @@
 
       case "conv-random":
         var list = currentSet().conversations;
-        state.conv.selection = [list[Math.floor(Math.random() * list.length)]];
+        var randomIndex = Math.floor(Math.random() * list.length);
+        state.conv.selection = [list[randomIndex]];
+        state.conv.index = randomIndex;
         state.conv.screen = "reading";
         render();
         break;
       case "conv-all":
         state.conv.selection = currentSet().conversations.slice();
+        state.conv.index = 0;
         state.conv.screen = "reading";
         render();
         break;
       case "conv-pick":
-        state.conv.selection = currentSet().conversations.filter(function (c) { return c.id === el.dataset.id; });
+        var pickList = currentSet().conversations;
+        var pickIndex = pickList.map(function (c) { return c.id; }).indexOf(el.dataset.id);
+        state.conv.selection = pickList.filter(function (c) { return c.id === el.dataset.id; });
+        state.conv.index = pickIndex === -1 ? 0 : pickIndex;
         state.conv.screen = "reading";
         render();
         break;
@@ -795,9 +937,13 @@
         state.conv.selection = null;
         render();
         break;
-      case "conv-toggle-en":
-        state.conv.showEnglish = !state.conv.showEnglish;
+      case "conv-mode":
+        state.conv.mode = el.dataset.mode;
         render();
+        break;
+      case "conv-prev":
+      case "conv-next":
+        convMove(action === "conv-next" ? 1 : -1);
         break;
       case "conv-take-quiz":
         startConversationQuiz();
@@ -805,9 +951,17 @@
     }
   }
 
+  function convMove(delta) {
+    var all = currentSet().conversations;
+    if (!state.conv.selection || all.length < 2) return;
+    state.conv.index = (state.conv.index + delta + all.length) % all.length;
+    render();
+    viewEl.scrollTop = 0;
+  }
+
   function handleKeydown(e) {
-    if (state.mode === "flashcards" && state.flash.panelOpen) {
-      if (e.key === "Escape") { closeTopicsPanel(); e.preventDefault(); }
+    if (state.filterSheet.open) {
+      if (e.key === "Escape") { closeFilterSheet(); e.preventDefault(); }
       return;
     }
     if (state.mode !== "flashcards" || state.activeQuiz) return;
@@ -823,23 +977,23 @@
 
   var touchStartX = 0, touchStartY = 0, touchMoved = false;
   function handleTouchStart(e) {
-    if (state.mode !== "flashcards" || state.flash.panelOpen) return;
+    if (state.mode !== "flashcards" || state.filterSheet.open) return;
     var t = e.touches[0];
     touchStartX = t.clientX; touchStartY = t.clientY; touchMoved = false;
   }
   function handleTouchMove(e) {
-    if (state.mode !== "flashcards" || state.flash.panelOpen) return;
+    if (state.mode !== "flashcards" || state.filterSheet.open) return;
     var t = e.touches[0];
     if (Math.abs(t.clientX - touchStartX) > 10 || Math.abs(t.clientY - touchStartY) > 10) touchMoved = true;
   }
   function handleTouchEnd(e) {
-    if (state.mode !== "flashcards" || state.flash.panelOpen || !touchMoved) return;
+    if (state.mode !== "flashcards" || state.filterSheet.open || !touchMoved) return;
     var t = e.changedTouches[0];
     var dx = t.clientX - touchStartX, dy = t.clientY - touchStartY;
     if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) animateFlashMove(dx < 0 ? 1 : -1);
   }
 
-  function handleTableInput(e) {
+  function handleInput(e) {
     if (e.target.id !== "table-search-input") return;
     state.table.query = e.target.value;
     var results = document.getElementById("glossary-results");
@@ -863,28 +1017,21 @@
         conversations: data.sets.reduce(function (acc, s) { return acc.concat(s.conversations); }, [])
       }]);
 
-      setSelectEl.innerHTML = allSets.map(function (s) {
-        return '<option value="' + esc(s.id) + '">' + esc(s.label) + "</option>";
-      }).join("");
-
       var validIds = allSets.map(function (s) { return s.id; });
       var savedSetId = localStorage.getItem(SET_KEY);
       var savedMode = localStorage.getItem(MODE_KEY);
 
       state.setId = validIds.indexOf(savedSetId) !== -1 ? savedSetId : "all";
       localStorage.setItem(SET_KEY, state.setId);
+      resetFlashState();
 
       var initialMode = savedMode || (state.setId === "visit" ? "table" : "flashcards");
       if (initialMode === "quiz" && state.setId === "visit") initialMode = "flashcards";
 
       enterMode(initialMode);
 
-      setSelectEl.addEventListener("change", function (e) { enterSet(e.target.value, true); });
-      modeButtons.forEach(function (btn) {
-        btn.addEventListener("click", function () { handleModeClick(btn.dataset.mode); });
-      });
-      viewEl.addEventListener("click", handleViewClick);
-      viewEl.addEventListener("input", handleTableInput);
+      appEl.addEventListener("click", handleClick);
+      appEl.addEventListener("input", handleInput);
       viewEl.addEventListener("touchstart", handleTouchStart, { passive: true });
       viewEl.addEventListener("touchmove", handleTouchMove, { passive: true });
       viewEl.addEventListener("touchend", handleTouchEnd, { passive: true });
