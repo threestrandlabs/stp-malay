@@ -1,0 +1,4 @@
+#!/bin/sh
+# Block commits that contain secrets.
+command -v gitleaks >/dev/null 2>&1 || { echo "gitleaks not installed; skipping"; exit 0; }
+exec gitleaks git --pre-commit --staged --redact --verbose
