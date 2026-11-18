@@ -6,6 +6,7 @@
 
   var pillBtn = document.getElementById("filter-pill-btn");
   var pillLabel = document.getElementById("filter-pill-label");
+  var brandEl = document.querySelector(".brand");
   var progressRow = document.getElementById("progress-row");
   var progressFill = document.getElementById("progress-fill");
   var progressCount = document.getElementById("progress-count");
@@ -118,9 +119,44 @@
     return selected.size + (selected.size === 1 ? " topic" : " topics");
   }
 
+  function pillCandidates(week, topics) {
+    var full = week + " · " + topics;
+    var weekMatch = /^Week (\d+)$/.exec(week);
+    var list;
+    if (week === "House Visit Guide") {
+      var topicsShort = topics === "All topics" ? "All" : topics;
+      list = [full, "Visit guide · " + topics, "Visit guide · " + topicsShort, "Visit guide"];
+    } else if (week === "All weeks") {
+      list = [full, "All · " + topics, "All weeks"];
+    } else if (weekMatch) {
+      list = [full, "Wk " + weekMatch[1] + " · " + topics, week];
+    } else {
+      list = [full];
+    }
+    return list.filter(function (label, i) { return list.indexOf(label) === i; });
+  }
+
+  function fitsNoTruncation(el) {
+    return el.scrollWidth <= el.clientWidth + 0.5;
+  }
+
   function updatePillLabel() {
     var set = currentSet();
-    pillLabel.textContent = weekLabel(set) + " · " + topicsLabel(set, state.flash.topics);
+    var week = weekLabel(set);
+    var topics = topicsLabel(set, state.flash.topics);
+    var full = week + " · " + topics;
+    var candidates = pillCandidates(week, topics);
+    var chosen = candidates[candidates.length - 1];
+    for (var i = 0; i < candidates.length; i++) {
+      pillLabel.textContent = candidates[i];
+      if (fitsNoTruncation(pillLabel) && fitsNoTruncation(brandEl)) {
+        chosen = candidates[i];
+        break;
+      }
+    }
+    pillLabel.textContent = chosen;
+    pillBtn.setAttribute("aria-label", full);
+    pillBtn.setAttribute("title", full);
   }
 
   // ---------- Flashcards ----------
@@ -1036,6 +1072,7 @@
       viewEl.addEventListener("touchmove", handleTouchMove, { passive: true });
       viewEl.addEventListener("touchend", handleTouchEnd, { passive: true });
       document.addEventListener("keydown", handleKeydown);
+      window.addEventListener("resize", updatePillLabel);
     })
     .catch(function (err) {
       viewEl.innerHTML = '<p class="empty-state">Could not load the word list. Try reloading the page.</p>';

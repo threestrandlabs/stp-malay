@@ -1,14 +1,14 @@
 :root {
-  --paper: #F3EADB;
-  --surface: #FBF6EC;
-  --surface-hover: #F6EEDF;
-  --surface-pressed: #ECE1CC;
-  --tab-bar: #F6EFE2;
-  --segment-track: #E8DCC6;
-  --line: #D6C8AE;
-  --line-subtle: #E3D7C2;
-  --divider: #EDE3D1;
-  --progress-track: #E3D6BF;
+  --paper: #E6E3E1;
+  --surface: #F7F5F2;
+  --surface-hover: #F1EEEA;
+  --surface-pressed: #E9E4DE;
+  --tab-bar: #EFECE9;
+  --segment-track: #DAD5CF;
+  --line: #CFC8BF;
+  --line-subtle: #DCD6CD;
+  --divider: #E4DFDA;
+  --progress-track: #DDD7CF;
   --ink: #1F1D1A;
   --ink-secondary: #4E473C;
   --muted: #5C5446;
@@ -29,7 +29,7 @@
   --scrim: rgba(31, 29, 26, 0.42);
 
   --font-serif: 'Newsreader', Georgia, serif;
-  --font-sans: 'Instrument Sans', system-ui, sans-serif;
+  --font-sans: 'Atkinson Hyperlegible Next', system-ui, sans-serif;
 
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -132,7 +132,7 @@ button {
 .brand {
   margin: 0;
   font-family: var(--font-serif);
-  font-size: 19px;
+  font-size: 18px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -143,14 +143,14 @@ button {
 .filter-pill {
   flex: 0 0 auto;
   height: var(--size-filter-pill);
-  padding: 0 12px;
+  padding: 0 10px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   font-size: 13px;
   font-weight: 500;
   max-width: 62%;

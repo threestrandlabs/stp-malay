@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.1.0] - 2026-11-18
+
+### Changed
+
+- UI font is now Atkinson Hyperlegible Next (OFL, self-hosted) replacing Instrument Sans.
+- Page background is now a warm stone grey `#E6E3E1` replacing the cream `#F3EADB`, with surface, tab bar, segment track, divider, and progress-track tokens rebalanced slightly cooler to stay calm against the new ground.
+- Both flagged by the Impeccable detector and approved by James.
+- Tightened the top bar: title is 18px and the filter pill has smaller padding/gap, so "Belajar Bahasa Melayu" no longer truncates at narrow widths; the pill label now adapts at runtime, picking the longest of several shortened forms (e.g. "Visit guide · All", "Wk 5 · 5 groups", "All · All topics") that still fits, with the full text kept as its accessible name.
+
 ## [2.0.0] - 2026-11-18
 
 ### Changed
